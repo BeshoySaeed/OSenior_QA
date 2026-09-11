@@ -310,4 +310,4 @@ app.get('/api/runs/:id', (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, browserInstalled: existsSync(path.join(root, 'node_modules')) }));
-app.listen(process.env.PORT || 3000, () => console.log('Web Quality Inspector running on http://localhost:3000'));
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => console.log('Web Quality Inspector running on http://localhost:3000'));
