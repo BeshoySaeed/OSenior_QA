@@ -37,3 +37,14 @@ Choose one or more checks in **Tests to run**:
 - **Style & spacing** performs the Figma pixel comparison and outlines grouped visual areas. It needs a Figma frame URL.
 - **Functionality** requires functional-flow JSON and runs only those interactions/assertions.
 - **Accessibility** runs the automated WCAG checks.
+
+## Free local AI triage
+
+The optional **Explain findings with free local AI** check uses [Ollama](https://ollama.com/) running on the same computer. It sends the run's structured findings to `http://127.0.0.1:11434` and returns a concise summary, likely causes, and suggested next steps. No cloud AI API key or paid provider is used.
+
+Install a local model once, then start Ollama before running a test:
+
+```powershell
+ollama pull llama3.2
+ollama serve
+```

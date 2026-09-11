@@ -8,7 +8,7 @@
       <form id="run-form" class="card" aria-labelledby="new-run"><h2 id="new-run">New test run</h2>
         <label>Page or component URL<input required name="url" type="url" placeholder="http://localhost:5173" value="https://example.com"></label>
         <label>Dismiss notification selector (optional)<input name="dismissSelector" placeholder="[aria-label='Close notification']"><small>Clicked once before capture if the notification appears. If it is absent, the run continues.</small></label>
-        <fieldset><legend>Viewport</legend><div class="row"><label>Width<input name="width" type="number" min="320" value="1440"></label><label>Height<input name="height" type="number" min="400" value="900"></label></div></fieldset>
+        <fieldset><legend>Viewport</legend><div class="row"><label>Width<input name="width" type="number" min="320" value="1440"></label><label>Height<input name="height" type="number" min="400" value="2669"></label></div></fieldset>
         <label>Figma frame URL <input name="figmaUrl" type="url" placeholder="https://www.figma.com/design/…?node-id=1-2"></label>
         <label>Figma token for this run <input name="figmaToken" type="password" autocomplete="off" placeholder="Stored only in server memory during this run"><small>Optional if the server was started with <code>FIGMA_TOKEN</code>. Never included in reports or artifacts.</small></label>
         <label>Allowed visual difference (%)<input name="visualThreshold" type="number" min="0" max="100" step="0.001" value="0"><small>Use 0 for strict pixel matching. The URL must point to a frame and include <code>node-id</code>.</small></label>
@@ -17,6 +17,10 @@
           <label class="check"><input name="testStyleSpacing" type="checkbox" checked> Style &amp; spacing — mark visual difference areas</label>
           <label class="check"><input name="testFunctionality" type="checkbox"> Functionality — requires a flow below</label>
           <label class="check"><input name="testAccessibility" type="checkbox" checked> Accessibility — automated WCAG checks</label>
+        </fieldset>
+        <fieldset class="test-types"><legend>AI triage</legend>
+          <label class="check"><input name="aiEnabled" type="checkbox"> Explain findings with free local AI (Ollama)</label>
+          <label>Local model<input name="aiModel" value="llama3.2" placeholder="llama3.2"><small>Runs on your computer; no token is sent to a paid AI provider.</small></label>
         </fieldset>
         <label class="check"><input type="checkbox" name="baseline"> Capture as visual baseline</label>
         <label id="flow-label">Functional flow (JSON)<textarea name="flow" rows="7" spellcheck="false" placeholder='[{"action":"click","selector":"button"},{"expect":"visible","selector":"[role=alert]"}]'></textarea><small>Required only when Functionality is checked.</small></label>
