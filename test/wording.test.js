@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compareWordingSections } from '../wording.js';
 
-const figma = (text, y) => ({ text, x: 0, y });
+const figma = (text, y) => ({ text, x: 0, y, width: 80, height: 18 });
 const page = (text, order, heading = false) => ({ text, heading, region: { x: 0, y: order * 20, width: 80, height: 18 } });
 
 test('shared phrases are not reported when section order changes', () => {
@@ -30,4 +30,5 @@ test('missing Figma text is reported without a page highlight region', () => {
   assert.equal(result[0].rows[0].kind, 'missing');
   assert.equal(result[0].rows[0].figma, 'Important introduction');
   assert.equal(result[0].rows[0].region, undefined);
+  assert.deepEqual(result[0].rows[0].figmaRegion, { x: 0, y: 20, width: 80, height: 18 });
 });

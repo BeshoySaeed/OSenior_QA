@@ -31,8 +31,8 @@ function render(run) {
   const figma = run.artifacts.find(a => a.type === 'figma-reference');
   setArtifactLink('current-render-link', current?.url, 'View current render');
   setArtifactLink('figma-reference-link', figma?.url || run.figmaUrl, 'View Figma references');
-  const marked = run.artifacts.find(a => a.type === 'wording-overlay');
-  overlay.innerHTML = marked ? `<figure class="overlay"><img src="${marked.url}" alt="Current page with red borders around changed phrases"><figcaption>${escapeHtml(marked.label)}</figcaption></figure>` : '';
+  const marked = run.artifacts.filter(a => ['wording-overlay', 'figma-wording-overlay'].includes(a.type));
+  overlay.innerHTML = marked.map(artifact => `<figure class="overlay"><img src="${artifact.url}" alt="${artifact.type === 'wording-overlay' ? 'Current page with wording issues outlined' : 'Figma reference with text missing from the website outlined'}"><figcaption>${escapeHtml(artifact.label)}</figcaption></figure>`).join('');
 }
 async function poll(id) { const run = await fetch(`/api/runs/${id}`).then(r => r.json()); render(run); if (['queued','running'].includes(run.status)) timer = setTimeout(() => poll(id), 1000); }
 form.addEventListener('submit', async event => {

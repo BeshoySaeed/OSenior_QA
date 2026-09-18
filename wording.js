@@ -40,7 +40,7 @@ function compareSection(label, figma, website) {
     rows.push({ kind: 'added', figma: '', website: website[p].text, region: website[p].region, order: website[p].order });
   }
   for (let f = 0; f < figma.length; f += 1) if (!figmaUsed.has(f)) {
-    rows.push({ kind: 'missing', figma: figma[f].text, website: '', order: figma[f].order });
+    rows.push({ kind: 'missing', figma: figma[f].text, website: '', figmaRegion: { x: figma[f].x, y: figma[f].y, width: figma[f].width, height: figma[f].height }, order: figma[f].order });
   }
   rows.sort((a, b) => a.order - b.order);
   return { label, rows };

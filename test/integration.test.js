@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { PNG } from 'pngjs';
+
+const pixel = (image, x, y) => [...image.data.subarray((y * image.width + x) * 4, (y * image.width + x) * 4 + 4)];
 
 test('run uses Figma dimensions and reports phrases by section', async () => {
   const port = 34000 + Math.floor(Math.random() * 10000);
@@ -30,13 +33,35 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     assert.equal(run.status, 'failed');
     assert.equal(run.includeHeaderFooter, false);
     assert.deepEqual(run.viewport, { width: 500, height: 700 });
-    assert.deepEqual(run.comparisons.flatMap(section => section.rows.map(row => row.kind)).sort(), ['changed', 'missing']);
+    assert.deepEqual(run.comparisons.flatMap(section => section.rows.map(row => row.kind)).sort(), ['added', 'changed', 'missing']);
     assert.doesNotMatch(JSON.stringify(run.comparisons), /header text|footer text/i);
     assert.ok(run.artifacts.some(artifact => artifact.type === 'screenshot'));
     assert.ok(run.artifacts.some(artifact => artifact.type === 'figma-reference'));
     assert.ok(run.artifacts.some(artifact => artifact.type === 'wording-overlay'));
+    assert.ok(run.artifacts.some(artifact => artifact.type === 'figma-wording-overlay'));
+
+    const artifactImage = async type => {
+      const url = run.artifacts.find(artifact => artifact.type === type).url;
+      return PNG.sync.read(Buffer.from(await fetch(`${base}${url}`).then(result => result.arrayBuffer())));
+    };
+    const [current, websiteOverlay, figmaOverlay] = await Promise.all([
+      artifactImage('screenshot'), artifactImage('wording-overlay'), artifactImage('figma-wording-overlay')
+    ]);
+    assert.deepEqual(pixel(figmaOverlay, 20, 230), [239, 49, 49, 255], 'Figma-only text should be outlined on the reference');
+    assert.deepEqual(websiteOverlay.data.subarray(0, 60 * websiteOverlay.width * 4), current.data.subarray(0, 60 * current.width * 4), 'header should remain unmarked');
+    assert.deepEqual(websiteOverlay.data.subarray(600 * websiteOverlay.width * 4), current.data.subarray(600 * current.width * 4), 'footer should remain unmarked');
 
     browser = await chromium.launch({ headless: true });
+    const fixturePage = await browser.newPage({ viewport: { width: 500, height: 700 } });
+    await fixturePage.goto(`${base}/fixture.html`);
+    const addedRegion = await fixturePage.locator('#website-only').evaluate(element => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { x: Math.round(rect.x), y: Math.round(rect.y) };
+    });
+    assert.deepEqual(pixel(websiteOverlay, addedRegion.x, addedRegion.y), [239, 49, 49, 255], 'website-only text should be outlined');
+    await fixturePage.close();
     const page = await browser.newPage();
     await page.goto(base);
     assert.equal(await page.locator('input[name=includeHeaderFooter]').isChecked(), false);
@@ -44,7 +69,8 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     await page.locator('input[name=figmaUrl]').fill('https://www.figma.com/design/test?node-id=1-2');
     await page.locator('button').click();
     await page.waitForFunction(() => ['failed', 'passed', 'error'].includes(document.querySelector('#status').textContent));
-    assert.equal(await page.locator('.comparison-section tbody tr').count(), 2);
+    assert.equal(await page.locator('.comparison-section tbody tr').count(), 3);
+    assert.equal(await page.locator('#wording-overlay figure').count(), 2);
     assert.match(await page.locator('#current-render-link').getAttribute('href'), /current\.png$/);
     assert.match(await page.locator('#figma-reference-link').getAttribute('href'), /figma-reference\.png$/);
     await page.locator('input[name=includeHeaderFooter]').check();
