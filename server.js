@@ -42,13 +42,14 @@ function drawBorder(image, region) {
     for (let y = region.y; y < region.y + region.height; y += 1) { set(region.x + offset, y); set(region.x + region.width - 1 - offset, y); }
   }
 }
-function figmaTextPhrases(node, phrases = []) {
+function figmaTextPhrases(node, includeHeaderFooter, phrases = []) {
   if (!node || typeof node !== 'object' || node.visible === false) return phrases;
+  if (!includeHeaderFooter && /(^|[\s_-])(header|footer)([\s_-]|$)/i.test(node.name || '')) return phrases;
   const box = node.absoluteBoundingBox;
   if (node.type === 'TEXT' && node.characters?.trim() && box) {
-    phrases.push({ text: node.characters.trim(), x: box.x, y: box.y });
+    phrases.push({ text: node.characters.trim(), x: box.x, y: box.y, width: box.width, height: box.height });
   }
-  for (const child of node.children || []) figmaTextPhrases(child, phrases);
+  for (const child of node.children || []) figmaTextPhrases(child, includeHeaderFooter, phrases);
   return phrases;
 }
 async function getFigmaNode(figmaUrl, figmaToken) {
@@ -85,14 +86,19 @@ async function saveFigmaReference(figmaUrl, figmaToken, run, runDir) {
   await writeFile(path.join(runDir, 'figma-reference.png'), Buffer.from(await image.arrayBuffer()));
   run.artifacts.push({ type: 'figma-reference', label: 'Figma references', url: `/artifacts/${run.id}/figma-reference.png` });
 }
-async function getPagePhrases(page) {
-  return page.evaluate(() => {
+async function getPagePhrases(page, includeHeaderFooter) {
+  return page.evaluate(includeHeaderFooter => {
     const phrases = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const excludedSelector = 'header, footer, #mc-header, #mc-footer, .mc-header, .mc-footer';
+    const excludedRegions = includeHeaderFooter ? [] : [...document.querySelectorAll(excludedSelector)].map(element => {
+      const rect = element.getBoundingClientRect();
+      return { y: rect.y, height: rect.height };
+    }).filter(rect => rect.height > 0);
     const seenHeadings = new Set();
     let node;
     while ((node = walker.nextNode())) {
       const parent = node.parentElement;
-      if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName) || parent.closest('[aria-hidden="true"]')) continue;
+      if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName) || parent.closest('[aria-hidden="true"]') || (!includeHeaderFooter && parent.closest(excludedSelector))) continue;
       const heading = parent.closest('h1,h2,h3');
       if (heading && seenHeadings.has(heading)) continue;
       const text = (heading ? heading.textContent : node.textContent)?.replace(/\s+/g, ' ').trim();
@@ -104,12 +110,18 @@ async function getPagePhrases(page) {
       if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
       phrases.push({ text, heading: Boolean(heading), region: { x: Math.max(0, Math.round(rect.x)), y: Math.max(0, Math.round(rect.y)), width: Math.ceil(rect.width), height: Math.ceil(rect.height) } });
     }
-    return phrases;
-  });
+    return { phrases, excludedRegions };
+  }, includeHeaderFooter);
 }
 async function runWordingCheck(page, figmaNode, run, runDir, currentPath) {
-  const [figmaPhrases, pagePhrases] = await Promise.all([Promise.resolve(figmaTextPhrases(figmaNode)), getPagePhrases(page)]);
-  if (!figmaPhrases.length) throw new Error('No text was found in the selected Figma frame.');
+  const { phrases: pagePhrases, excludedRegions } = await getPagePhrases(page, run.includeHeaderFooter);
+  const allFigmaPhrases = figmaTextPhrases(figmaNode, run.includeHeaderFooter);
+  if (!allFigmaPhrases.length && run.includeHeaderFooter) throw new Error('No text was found in the selected Figma frame.');
+  const frameTop = figmaNode.absoluteBoundingBox.y;
+  const figmaPhrases = allFigmaPhrases.filter(phrase => {
+    const centerY = phrase.y - frameTop + phrase.height / 2;
+    return !excludedRegions.some(region => centerY >= region.y && centerY <= region.y + region.height);
+  });
   const sections = compareWordingSections(figmaPhrases, pagePhrases);
   run.comparisons = sections.filter(section => section.rows.length).map(section => ({
     label: section.label,
@@ -166,7 +178,7 @@ app.post('/api/runs', (req, res) => {
   try {
     safeUrl(req.body.url);
     parseFigmaReference(req.body.figmaUrl);
-    const run = { id: crypto.randomUUID(), status: 'queued', url: req.body.url, figmaUrl: req.body.figmaUrl, findings: [], artifacts: [], createdAt: new Date().toISOString() };
+    const run = { id: crypto.randomUUID(), status: 'queued', url: req.body.url, figmaUrl: req.body.figmaUrl, includeHeaderFooter: req.body.includeHeaderFooter === true, findings: [], artifacts: [], createdAt: new Date().toISOString() };
     runs.set(run.id, run);
     res.status(202).json(run);
     void runSuite(run, req.body);

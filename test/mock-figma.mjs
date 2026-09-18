@@ -4,10 +4,14 @@ const originalFetch = globalThis.fetch;
 const frame = {
   type: 'FRAME', absoluteBoundingBox: { x: 0, y: 0, width: 500, height: 700 },
   children: [
-    { type: 'TEXT', characters: 'Checkout', absoluteBoundingBox: { x: 20, y: 20, width: 150, height: 30 } },
-    { type: 'TEXT', characters: 'Email', absoluteBoundingBox: { x: 20, y: 80, width: 80, height: 20 } },
-    { type: 'TEXT', characters: 'Continue now', absoluteBoundingBox: { x: 20, y: 120, width: 150, height: 20 } },
-    { type: 'TEXT', characters: 'Order status', absoluteBoundingBox: { x: 20, y: 180, width: 130, height: 20 } }
+    { type: 'TEXT', characters: 'Figma header text', absoluteBoundingBox: { x: 20, y: 10, width: 150, height: 20 } },
+    { type: 'TEXT', characters: 'Checkout', absoluteBoundingBox: { x: 20, y: 80, width: 150, height: 30 } },
+    { type: 'TEXT', characters: 'Email', absoluteBoundingBox: { x: 20, y: 130, width: 80, height: 20 } },
+    { type: 'TEXT', characters: 'Continue now', absoluteBoundingBox: { x: 20, y: 170, width: 150, height: 20 } },
+    { type: 'TEXT', characters: 'Order status', absoluteBoundingBox: { x: 20, y: 230, width: 130, height: 20 } },
+    { type: 'FRAME', name: 'Footer', children: [
+      { type: 'TEXT', characters: 'Figma footer text', absoluteBoundingBox: { x: 20, y: 630, width: 150, height: 20 } }
+    ] }
   ]
 };
 const image = new PNG({ width: 500, height: 700 });

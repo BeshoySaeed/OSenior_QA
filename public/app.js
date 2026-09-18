@@ -38,6 +38,6 @@ async function poll(id) { const run = await fetch(`/api/runs/${id}`).then(r => r
 form.addEventListener('submit', async event => {
   event.preventDefault(); clearTimeout(timer); error.textContent = '';
   const data = new FormData(form);
-  const payload = { url: data.get('url'), dismissSelector: data.get('dismissSelector') || undefined, figmaUrl: data.get('figmaUrl'), figmaToken: data.get('figmaToken') || undefined };
+  const payload = { url: data.get('url'), dismissSelector: data.get('dismissSelector') || undefined, figmaUrl: data.get('figmaUrl'), figmaToken: data.get('figmaToken') || undefined, includeHeaderFooter: data.has('includeHeaderFooter') };
   try { const response = await fetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); const run = await response.json(); if (!response.ok) throw new Error(run.error); render(run); poll(run.id); } catch (e) { error.textContent = e.message; }
 });
