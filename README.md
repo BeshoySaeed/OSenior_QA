@@ -1,8 +1,6 @@
-# Web Quality Inspector
+# Wording Inspector
 
-Working local MVP for a tool that tests web pages and components against visual designs, functional expectations, and accessibility requirements.
-
-Start with [the feature plan](docs/feature-plan.md), then use [the requirements](docs/requirements.md) as the build and acceptance contract.
+Local tool for comparing visible page wording with the text in a Figma frame. The report highlights page words that differ and keeps links to the current render and Figma reference visible for every run.
 
 ## Run locally
 
@@ -12,39 +10,8 @@ npx playwright install chromium
 npm run dev
 ```
 
-Open `http://localhost:3000`. Enter a page URL, optional functional-flow JSON, and run the inspection. Browser screenshots and the JSON report are saved under `artifacts/`.
+Open `http://localhost:3000`. Enter a page URL, a Figma frame URL containing `node-id`, and a Figma personal access token (or set `FIGMA_TOKEN` before starting the server). The browser viewport automatically uses the selected Figma frame's width and height. The token stays in server memory and is not written to the report. Screenshots and the JSON report are saved under `artifacts/`.
 
-## Figma pixel comparison
+If a notification covers the page, enter its close-button CSS selector. The runner attempts to click it before capturing the current render.
 
-Set a Figma personal access token before starting the server, or paste it into the dashboard's per-run password field. The per-run value is used only in memory by that run and is never written to run metadata, reports, screenshots, or artifacts. Do not commit tokens.
-
-
-Paste a Figma **frame** URL containing `node-id` into the dashboard. The run exports the frame and saves the reference plus pixel diff under `artifacts/`. The selected browser viewport must exactly equal the exported Figma frame dimensions; otherwise the run reports a dimension mismatch instead of scaling either image. Set **Allowed visual difference** to `0` for strict matching. For meaningful strict results, keep browser, fonts, color scheme, and dynamic content fixed.
-
-The server process must be permitted to make outbound HTTPS requests to both the target site and `api.figma.com`; blocked navigation/export is reported as a high-severity finding rather than a passing run.
-
-## Notifications and clearer visual results
-
-If a cookie banner, pre-notification, or modal sometimes covers the page, enter its close-button CSS selector in **Dismiss notification selector**. The runner clicks it before taking the screenshot; absence of the notification does not fail a run.
-
-Figma comparisons now include a **Page with visual differences marked** artifact embedded in the report. Red borders group nearby pixel differences into areas to review; the report also lists their coordinates. The image comparison can identify visual differences, but it cannot reliably prove whether a region is specifically wording, spacing, styling, or missing content without semantic mapping to Figma nodes and the page DOM.
-
-## Select specific checks
-
-Choose one or more checks in **Tests to run**:
-
-- **Wording** reads text nodes from the selected Figma frame and visible words from the page, then outlines only page words that are not present in the design text. It needs Figma access.
-- **Style & spacing** performs the Figma pixel comparison and outlines grouped visual areas. It needs a Figma frame URL.
-- **Functionality** requires functional-flow JSON and runs only those interactions/assertions.
-- **Accessibility** runs the automated WCAG checks.
-
-## Free local AI triage
-
-The optional **Explain findings with free local AI** check uses [Ollama](https://ollama.com/) running on the same computer. It sends the run's structured findings to `http://127.0.0.1:11434` and returns a concise summary, likely causes, and suggested next steps. No cloud AI API key or paid provider is used.
-
-Install a local model once, then start Ollama before running a test:
-
-```powershell
-ollama pull llama3.2
-ollama serve
-```
+The wording test compares word counts from Figma text nodes with visible page words. It marks extra page words on the screenshot and lists words from Figma that are absent from the page. The Figma reference button opens the exported frame when available, or the original Figma URL if export fails. The current render button is available once the page screenshot is captured.

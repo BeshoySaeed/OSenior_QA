@@ -1,33 +1,18 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Web Quality Inspector</title><link rel="stylesheet" href="/style.css"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wording Inspector</title><link rel="stylesheet" href="/style.css"></head>
 <body>
   <main class="shell">
-    <header><p class="eyebrow">QUALITY WORKSPACE</p><h1>Test your web experience with evidence.</h1><p class="lede">Visual capture, functional journeys, and accessibility checks in one run.</p></header>
+    <header><p class="eyebrow">WORDING WORKSPACE</p><h1>Compare page wording with Figma.</h1><p class="lede">Capture the current page, compare visible words with a Figma frame, and review the marked differences.</p></header>
     <section class="grid">
-      <form id="run-form" class="card" aria-labelledby="new-run"><h2 id="new-run">New test run</h2>
+      <form id="run-form" class="card" aria-labelledby="new-run"><h2 id="new-run">New wording test</h2>
         <label>Page or component URL<input required name="url" type="url" placeholder="http://localhost:5173" value="https://example.com"></label>
-        <label>Dismiss notification selector (optional)<input name="dismissSelector" placeholder="[aria-label='Close notification']"><small>Clicked once before capture if the notification appears. If it is absent, the run continues.</small></label>
-        <fieldset><legend>Viewport</legend><div class="row"><label>Width<input name="width" type="number" min="320" value="1440"></label><label>Height<input name="height" type="number" min="400" value="2669"></label></div></fieldset>
-        <label>Figma frame URL <input name="figmaUrl" type="url" placeholder="https://www.figma.com/design/…?node-id=1-2"></label>
-        <label>Figma token for this run <input name="figmaToken" type="password" autocomplete="off" placeholder="Stored only in server memory during this run"><small>Optional if the server was started with <code>FIGMA_TOKEN</code>. Never included in reports or artifacts.</small></label>
-        <label>Allowed visual difference (%)<input name="visualThreshold" type="number" min="0" max="100" step="0.001" value="0"><small>Use 0 for strict pixel matching. The URL must point to a frame and include <code>node-id</code>.</small></label>
-        <fieldset class="test-types"><legend>Tests to run</legend>
-          <label class="check"><input name="testWording" type="checkbox"> Wording — mark only changed page words</label>
-          <label class="check"><input name="testStyleSpacing" type="checkbox" checked> Style &amp; spacing — mark visual difference areas</label>
-          <label class="check"><input name="testFunctionality" type="checkbox"> Functionality — requires a flow below</label>
-          <label class="check"><input name="testAccessibility" type="checkbox" checked> Accessibility — automated WCAG checks</label>
-        </fieldset>
-        <fieldset class="test-types"><legend>AI triage</legend>
-          <label class="check"><input name="aiEnabled" type="checkbox"> Explain findings with free local AI (Ollama)</label>
-          <label>Local model<input name="aiModel" value="llama3.2" placeholder="llama3.2"><small>Runs on your computer; no token is sent to a paid AI provider.</small></label>
-        </fieldset>
-        <label class="check"><input type="checkbox" name="baseline"> Capture as visual baseline</label>
-        <label id="flow-label">Functional flow (JSON)<textarea name="flow" rows="7" spellcheck="false" placeholder='[{"action":"click","selector":"button"},{"expect":"visible","selector":"[role=alert]"}]'></textarea><small>Required only when Functionality is checked.</small></label>
-        <button>Run inspection <span aria-hidden="true">→</span></button><p id="form-error" role="alert"></p>
+        <label>Dismiss notification selector (optional)<input name="dismissSelector" placeholder="[aria-label='Close notification']"><small>Clicked once before capture if the notification appears.</small></label>
+        <label>Figma frame URL<input required name="figmaUrl" type="url" placeholder="https://www.figma.com/design/…?node-id=1-2"><small>The URL must point to a frame and include <code>node-id</code>. The page is captured at the frame's width and height.</small></label>
+        <label>Figma token for this run<input name="figmaToken" type="password" autocomplete="off" placeholder="Stored only in server memory during this run"><small>Optional if the server was started with <code>FIGMA_TOKEN</code>. Never included in reports or artifacts.</small></label>
+        <button>Run wording test <span aria-hidden="true">→</span></button><p id="form-error" role="alert"></p>
       </form>
-      <section class="card report" aria-live="polite"><div class="report-title"><div><p class="eyebrow">LIVE REPORT</p><h2 id="run-title">Ready to inspect</h2></div><span id="status" class="badge">Idle</span></div><p id="summary">Start a run to collect browser evidence.</p><div id="findings" class="findings"></div><div id="artifacts"></div></section>
+      <section class="card report" aria-live="polite"><div class="report-title"><div><p class="eyebrow">LIVE REPORT</p><h2 id="run-title">Ready to compare</h2></div><span id="status" class="badge">Idle</span></div><p id="summary">Start a test to collect browser evidence.</p><div id="findings" class="findings"></div><div id="artifacts"><div class="artifact-actions"><span id="current-render-link" class="artifact unavailable" aria-disabled="true">View current render</span><span id="figma-reference-link" class="artifact unavailable" aria-disabled="true">View Figma references</span></div><div id="wording-overlay"></div></div></section>
     </section>
-    <section class="coverage"><article><b>Figma visual</b><span>Frame export and pixel-diff evidence</span></article><article><b>Functional</b><span>Declarative browser flow checks</span></article><article><b>Accessible</b><span>WCAG-focused automated audit</span></article></section>
   </main><script src="/app.js"></script>
 </body></html>
