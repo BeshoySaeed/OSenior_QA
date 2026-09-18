@@ -20,24 +20,25 @@ function setArtifactLink(id, url, label) {
   old.replaceWith(element);
 }
 function render(run) {
+  const styleSpacing = run.testType === 'style-spacing';
   status.textContent = run.status;
   status.className = `badge ${run.status}`;
   title.textContent = run.url;
   const differenceCount = (run.comparisons || []).reduce((count, section) => count + section.rows.length, 0);
-  summary.textContent = run.status === 'queued' ? 'Waiting to start…' : run.status === 'running' ? 'Browser is collecting evidence…' : run.error ? `Run error: ${run.error}` : `${differenceCount} phrase difference${differenceCount === 1 ? '' : 's'} across ${(run.comparisons || []).length} section${(run.comparisons || []).length === 1 ? '' : 's'}`;
-  findings.innerHTML = run.findings.map(f => `<article class="finding ${f.severity}"><div><span class="tag">${escapeHtml(f.category)}</span><h3>${escapeHtml(f.title)}</h3></div><span class="severity">${escapeHtml(f.severity)}</span><p>${escapeHtml(f.description || '')}</p></article>`).join('') || (run.status === 'passed' ? '<p class="empty">No wording differences found.</p>' : '');
-  comparisons.innerHTML = (run.comparisons || []).map(section => `<details class="comparison-section" open><summary>${escapeHtml(section.label)} <span>${section.rows.length} difference${section.rows.length === 1 ? '' : 's'}</span></summary><div class="comparison-scroll"><table><thead><tr><th>Type</th><th>Figma phrase</th><th>Website phrase</th></tr></thead><tbody>${section.rows.map(row => `<tr class="${row.kind}"><td class="difference-type">${row.kind === 'added' ? 'Website only' : row.kind === 'missing' ? 'Figma only' : 'Changed'}</td><td>${row.figma ? escapeHtml(row.figma) : '<em>Not in Figma</em>'}</td><td>${row.website ? escapeHtml(row.website) : '<em>Not on website</em>'}</td></tr>`).join('')}</tbody></table></div></details>`).join('');
+  summary.textContent = run.status === 'queued' ? 'Waiting to start…' : run.status === 'running' ? 'Browser is collecting evidence…' : run.error ? `Run error: ${run.error}` : `${differenceCount} ${styleSpacing ? 'style/spacing' : 'phrase'} difference${differenceCount === 1 ? '' : 's'} across ${(run.comparisons || []).length} section${(run.comparisons || []).length === 1 ? '' : 's'}`;
+  findings.innerHTML = run.findings.map(f => `<article class="finding ${f.severity}"><div><span class="tag">${escapeHtml(f.category)}</span><h3>${escapeHtml(f.title)}</h3></div><span class="severity">${escapeHtml(f.severity)}</span><p>${escapeHtml(f.description || '')}</p></article>`).join('') || (run.status === 'passed' ? `<p class="empty">No ${styleSpacing ? 'style or spacing' : 'wording'} differences found.</p>` : '');
+  comparisons.innerHTML = (run.comparisons || []).map(section => `<details class="comparison-section" open><summary>${escapeHtml(section.label)} <span>${section.rows.length} difference${section.rows.length === 1 ? '' : 's'}</span></summary><div class="comparison-scroll"><table><thead><tr><th>Type</th><th>Figma ${styleSpacing ? 'value' : 'phrase'}</th><th>Website ${styleSpacing ? 'value' : 'phrase'}</th></tr></thead><tbody>${section.rows.map(row => `<tr class="${row.kind}"><td class="difference-type">${row.kind === 'added' ? 'Website only' : row.kind === 'missing' ? 'Figma only' : 'Changed'}</td><td>${row.figma ? escapeHtml(row.figma) : '<em>Not in Figma</em>'}</td><td>${row.website ? escapeHtml(row.website) : '<em>Not on website</em>'}</td></tr>`).join('')}</tbody></table></div></details>`).join('');
   const current = run.artifacts.find(a => a.type === 'screenshot');
   const figma = run.artifacts.find(a => a.type === 'figma-reference');
   setArtifactLink('current-render-link', current?.url, 'View current render');
   setArtifactLink('figma-reference-link', figma?.url || run.figmaUrl, 'View Figma references');
-  const marked = run.artifacts.filter(a => ['wording-overlay', 'figma-wording-overlay'].includes(a.type));
-  overlay.innerHTML = marked.map(artifact => `<figure class="overlay"><img src="${artifact.url}" alt="${artifact.type === 'wording-overlay' ? 'Current page with wording issues outlined' : 'Figma reference with text missing from the website outlined'}"><figcaption>${escapeHtml(artifact.label)}</figcaption></figure>`).join('');
+  const marked = run.artifacts.filter(a => ['wording-overlay', 'figma-wording-overlay', 'style-spacing-overlay'].includes(a.type));
+  overlay.innerHTML = marked.map(artifact => `<figure class="overlay"><img src="${artifact.url}" alt="${artifact.type === 'figma-wording-overlay' ? 'Figma reference with text missing from the website outlined' : 'Current page with issues outlined'}"><figcaption>${escapeHtml(artifact.label)}</figcaption></figure>`).join('');
 }
 async function poll(id) { const run = await fetch(`/api/runs/${id}`).then(r => r.json()); render(run); if (['queued','running'].includes(run.status)) timer = setTimeout(() => poll(id), 1000); }
 form.addEventListener('submit', async event => {
   event.preventDefault(); clearTimeout(timer); error.textContent = '';
   const data = new FormData(form);
-  const payload = { url: data.get('url'), dismissSelector: data.get('dismissSelector') || undefined, figmaUrl: data.get('figmaUrl'), figmaToken: data.get('figmaToken') || undefined, includeHeaderFooter: data.has('includeHeaderFooter') };
+  const payload = { testType: data.get('testType'), url: data.get('url'), dismissSelector: data.get('dismissSelector') || undefined, figmaUrl: data.get('figmaUrl'), figmaToken: data.get('figmaToken') || undefined, includeHeaderFooter: data.has('includeHeaderFooter') };
   try { const response = await fetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }); const run = await response.json(); if (!response.ok) throw new Error(run.error); render(run); poll(run.id); } catch (e) { error.textContent = e.message; }
 });

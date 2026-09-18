@@ -22,7 +22,7 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     assert.equal(ready, true, 'server should start');
     const response = await fetch(`${base}/api/runs`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: `${base}/fixture.html`, figmaUrl: 'https://www.figma.com/design/test?node-id=1-2' })
+      body: JSON.stringify({ testType: 'wording', includeHeaderFooter: false, url: `${base}/fixture.html`, figmaUrl: 'https://www.figma.com/design/test?node-id=1-2' })
     });
     assert.equal(response.status, 202);
     let run = await response.json();
@@ -31,6 +31,7 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
       run = await fetch(`${base}/api/runs/${run.id}`).then(result => result.json());
     }
     assert.equal(run.status, 'failed');
+    assert.equal(run.testType, 'wording');
     assert.equal(run.includeHeaderFooter, false);
     assert.deepEqual(run.viewport, { width: 500, height: 700 });
     assert.deepEqual(run.comparisons.flatMap(section => section.rows.map(row => row.kind)).sort(), ['added', 'changed', 'missing']);
@@ -64,7 +65,9 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     await fixturePage.close();
     const page = await browser.newPage();
     await page.goto(base);
-    assert.equal(await page.locator('input[name=includeHeaderFooter]').isChecked(), false);
+    assert.equal(await page.locator('select[name=testType]').inputValue(), 'wording');
+    assert.equal(await page.locator('input[name=includeHeaderFooter]').isChecked(), true);
+    await page.locator('input[name=includeHeaderFooter]').uncheck();
     await page.locator('input[name=url]').fill(`${base}/fixture.html`);
     await page.locator('input[name=figmaUrl]').fill('https://www.figma.com/design/test?node-id=1-2');
     await page.locator('button').click();
@@ -79,6 +82,77 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     await page.waitForFunction(() => document.querySelector('#comparisons').textContent.includes('header text'));
     assert.match(await page.locator('#comparisons').textContent(), /header text/i);
     assert.match(await page.locator('#comparisons').textContent(), /footer text/i);
+  } finally {
+    if (browser) await browser.close();
+    server.kill();
+  }
+});
+
+test('style/spacing mode passes, fails, respects header/footer, and rejects multiple modes', async () => {
+  const port = 34000 + Math.floor(Math.random() * 10000);
+  const base = `http://127.0.0.1:${port}`;
+  const server = spawn(process.execPath, ['--import', './test/mock-figma.mjs', 'server.js'], {
+    cwd: process.cwd(), env: { ...process.env, PORT: String(port), FIGMA_TOKEN: 'test-token' }, stdio: 'ignore'
+  });
+  let browser;
+  const payload = (suffix = '', includeHeaderFooter) => ({
+    testType: 'style-spacing', url: `${base}/style-fixture.html${suffix}`,
+    figmaUrl: 'https://www.figma.com/design/test?node-id=2-3',
+    ...(includeHeaderFooter === undefined ? {} : { includeHeaderFooter })
+  });
+  const runRequest = async body => {
+    const response = await fetch(`${base}/api/runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal(response.status, 202);
+    let run = await response.json();
+    for (let attempt = 0; attempt < 100 && ['queued', 'running'].includes(run.status); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      run = await fetch(`${base}/api/runs/${run.id}`).then(result => result.json());
+    }
+    return run;
+  };
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try { ready = (await fetch(`${base}/api/health`)).ok; if (ready) break; } catch { /* Starting. */ }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.equal(ready, true, 'server should start');
+
+    const pass = await runRequest(payload());
+    assert.equal(pass.testType, 'style-spacing');
+    assert.equal(pass.includeHeaderFooter, true);
+    assert.equal(pass.status, 'passed', JSON.stringify(pass.findings));
+    assert.deepEqual(pass.comparisons, []);
+
+    const fail = await runRequest(payload('?spacingMismatch=1'));
+    assert.equal(fail.status, 'failed');
+    assert.ok(fail.comparisons.some(section => section.label === 'Spacing'));
+    assert.ok(fail.findings.some(finding => finding.category === 'style-spacing'));
+    assert.ok(fail.artifacts.some(artifact => artifact.type === 'style-spacing-overlay'));
+    assert.ok(!fail.artifacts.some(artifact => artifact.type === 'wording-overlay'));
+
+    const excluded = await runRequest(payload('?headerFooterMismatch=1', false));
+    assert.equal(excluded.status, 'passed', JSON.stringify(excluded.findings));
+    const included = await runRequest(payload('?headerFooterMismatch=1', true));
+    assert.equal(included.status, 'failed');
+    assert.match(JSON.stringify(included.comparisons), /Brand|Legal/);
+
+    const both = await fetch(`${base}/api/runs`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...payload(), testType: ['wording', 'style-spacing'] })
+    });
+    assert.equal(both.status, 400);
+    assert.match((await both.json()).error, /exactly one test type/);
+
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(base);
+    await page.locator('select[name=testType]').selectOption('style-spacing');
+    await page.locator('input[name=url]').fill(`${base}/style-fixture.html`);
+    await page.locator('input[name=figmaUrl]').fill('https://www.figma.com/design/test?node-id=2-3');
+    await page.locator('button').click();
+    await page.waitForFunction(() => ['failed', 'passed', 'error'].includes(document.querySelector('#status').textContent));
+    assert.equal(await page.locator('#status').textContent(), 'passed');
   } finally {
     if (browser) await browser.close();
     server.kill();

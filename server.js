@@ -5,9 +5,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import { PNG } from 'pngjs';
-import sharp from 'sharp';
-import { compareWordingSections } from './wording.js';
+import { runWordingCheck } from './wording-runner.js';
+import { runStyleSpacingCheck } from './style-spacing-runner.js';
+import { toFinding } from './run-shared.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const artifactRoot = path.join(root, 'artifacts');
@@ -32,25 +32,10 @@ function parseFigmaReference(value) {
   if (!fileKey || !nodeId) throw new Error('The Figma URL must include a file/design key and node-id query parameter.');
   return { fileKey, nodeId };
 }
-const toFinding = (severity, title, description) => ({ id: crypto.randomUUID(), category: 'wording', severity, title, description });
-
-function drawBorder(image, region) {
-  const color = [239, 49, 49, 255], thickness = 3;
-  const set = (x, y) => { if (x >= 0 && x < image.width && y >= 0 && y < image.height) image.data.set(color, (y * image.width + x) * 4); };
-  for (let offset = 0; offset < thickness; offset += 1) {
-    for (let x = region.x; x < region.x + region.width; x += 1) { set(x, region.y + offset); set(x, region.y + region.height - 1 - offset); }
-    for (let y = region.y; y < region.y + region.height; y += 1) { set(region.x + offset, y); set(region.x + region.width - 1 - offset, y); }
-  }
-}
-function figmaTextPhrases(node, includeHeaderFooter, phrases = []) {
-  if (!node || typeof node !== 'object' || node.visible === false) return phrases;
-  if (!includeHeaderFooter && /(^|[\s_-])(header|footer)([\s_-]|$)/i.test(node.name || '')) return phrases;
-  const box = node.absoluteBoundingBox;
-  if (node.type === 'TEXT' && node.characters?.trim() && box) {
-    phrases.push({ text: node.characters.trim(), x: box.x, y: box.y, width: box.width, height: box.height });
-  }
-  for (const child of node.children || []) figmaTextPhrases(child, includeHeaderFooter, phrases);
-  return phrases;
+function parseTestType(value) {
+  if (value === undefined) return 'wording'; // Existing API callers remain wording runs.
+  if (value === 'wording' || value === 'style-spacing') return value;
+  throw new Error('Select exactly one test type: wording or style-spacing.');
 }
 async function getFigmaNode(figmaUrl, figmaToken) {
   const token = figmaToken || process.env.FIGMA_TOKEN;
@@ -86,72 +71,6 @@ async function saveFigmaReference(figmaUrl, figmaToken, run, runDir) {
   await writeFile(path.join(runDir, 'figma-reference.png'), Buffer.from(await image.arrayBuffer()));
   run.artifacts.push({ type: 'figma-reference', label: 'Figma references', url: `/artifacts/${run.id}/figma-reference.png` });
 }
-async function getPagePhrases(page, includeHeaderFooter) {
-  return page.evaluate(includeHeaderFooter => {
-    const phrases = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    const excludedSelector = 'header, footer, #mc-header, #mc-footer, .mc-header, .mc-footer';
-    const excludedRegions = includeHeaderFooter ? [] : [...document.querySelectorAll(excludedSelector)].map(element => {
-      const rect = element.getBoundingClientRect();
-      return { y: rect.y, height: rect.height };
-    }).filter(rect => rect.height > 0);
-    const seenHeadings = new Set();
-    let node;
-    while ((node = walker.nextNode())) {
-      const parent = node.parentElement;
-      if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName) || parent.closest('[aria-hidden="true"]') || (!includeHeaderFooter && parent.closest(excludedSelector))) continue;
-      const heading = parent.closest('h1,h2,h3');
-      if (heading && seenHeadings.has(heading)) continue;
-      const text = (heading ? heading.textContent : node.textContent)?.replace(/\s+/g, ' ').trim();
-      if (!text) continue;
-      const range = document.createRange();
-      if (heading) { range.selectNodeContents(heading); seenHeadings.add(heading); }
-      else range.selectNodeContents(node);
-      const rect = range.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
-      phrases.push({ text, heading: Boolean(heading), region: { x: Math.max(0, Math.round(rect.x)), y: Math.max(0, Math.round(rect.y)), width: Math.ceil(rect.width), height: Math.ceil(rect.height) } });
-    }
-    return { phrases, excludedRegions };
-  }, includeHeaderFooter);
-}
-async function runWordingCheck(page, figmaNode, run, runDir, currentPath) {
-  const { phrases: pagePhrases, excludedRegions } = await getPagePhrases(page, run.includeHeaderFooter);
-  const allFigmaPhrases = figmaTextPhrases(figmaNode, run.includeHeaderFooter);
-  if (!allFigmaPhrases.length && run.includeHeaderFooter) throw new Error('No text was found in the selected Figma frame.');
-  const frameTop = figmaNode.absoluteBoundingBox.y;
-  const figmaPhrases = allFigmaPhrases.filter(phrase => {
-    const centerY = phrase.y - frameTop + phrase.height / 2;
-    return !excludedRegions.some(region => centerY >= region.y && centerY <= region.y + region.height);
-  });
-  const sections = compareWordingSections(figmaPhrases, pagePhrases);
-  run.comparisons = sections.filter(section => section.rows.length).map(section => ({
-    label: section.label,
-    rows: section.rows.map(({ kind, figma, website }) => ({ kind, figma, website }))
-  }));
-  const rows = sections.flatMap(section => section.rows);
-  const counts = { changed: 0, added: 0, missing: 0 };
-  rows.forEach(row => { counts[row.kind] += 1; });
-  const websiteIssues = rows.filter(row => row.region && ['changed', 'added'].includes(row.kind));
-  if (websiteIssues.length) {
-    const overlay = PNG.sync.read(await sharp(currentPath).png().toBuffer());
-    websiteIssues.forEach(row => drawBorder(overlay, row.region));
-    await writeFile(path.join(runDir, 'wording-overlay.png'), PNG.sync.write(overlay));
-    run.artifacts.push({ type: 'wording-overlay', label: 'Website issues: changed and website-only wording', url: `/artifacts/${run.id}/wording-overlay.png` });
-  }
-  const missingIssues = rows.filter(row => row.kind === 'missing' && row.figmaRegion);
-  if (missingIssues.length && run.artifacts.some(artifact => artifact.type === 'figma-reference')) {
-    const overlay = PNG.sync.read(await sharp(path.join(runDir, 'figma-reference.png')).png().toBuffer());
-    const frame = figmaNode.absoluteBoundingBox;
-    missingIssues.forEach(row => drawBorder(overlay, {
-      x: Math.round((row.figmaRegion.x - frame.x) * overlay.width / frame.width),
-      y: Math.round((row.figmaRegion.y - frame.y) * overlay.height / frame.height),
-      width: Math.ceil(row.figmaRegion.width * overlay.width / frame.width),
-      height: Math.ceil(row.figmaRegion.height * overlay.height / frame.height)
-    }));
-    await writeFile(path.join(runDir, 'figma-wording-overlay.png'), PNG.sync.write(overlay));
-    run.artifacts.push({ type: 'figma-wording-overlay', label: 'Figma issues: wording missing from the website', url: `/artifacts/${run.id}/figma-wording-overlay.png` });
-  }
-  if (counts.changed || counts.added || counts.missing) run.findings.push(toFinding('high', 'Wording differs from Figma', `${counts.changed} changed, ${counts.added} added on the website, ${counts.missing} missing from the website. Review the phrases by section below.`));
-}
 async function runSuite(run, request) {
   const { url, figmaUrl, figmaToken, dismissSelector } = request;
   const runDir = path.join(artifactRoot, run.id);
@@ -175,13 +94,18 @@ async function runSuite(run, request) {
     const currentPath = path.join(runDir, 'current.png');
     await page.screenshot({ path: currentPath, fullPage: false });
     run.artifacts.push({ type: 'screenshot', label: 'Current render', url: `/artifacts/${run.id}/current.png` });
-    try { await runWordingCheck(page, figmaNode, run, runDir, currentPath); }
-    catch (error) { run.findings.push(toFinding('high', 'Wording comparison unavailable', error.message)); }
+    try {
+      if (run.testType === 'wording') await runWordingCheck(page, figmaNode, run, runDir, currentPath);
+      else await runStyleSpacingCheck(page, figmaNode, run, runDir, currentPath);
+    } catch (error) {
+      const title = run.testType === 'wording' ? 'Wording comparison unavailable' : 'Style/spacing comparison unavailable';
+      run.findings.push(toFinding(run.testType, 'high', title, error.message));
+    }
     run.status = run.findings.some(f => f.severity === 'high') ? 'failed' : 'passed';
   } catch (error) {
     run.status = 'error';
     run.error = error.message;
-    run.findings.push(toFinding('high', 'Wording test could not complete', error.message));
+    run.findings.push(toFinding(run.testType, 'high', `${run.testType === 'wording' ? 'Wording' : 'Style/spacing'} test could not complete`, error.message));
   } finally {
     run.finishedAt = new Date().toISOString();
     await writeFile(path.join(runDir, 'report.json'), JSON.stringify(run, null, 2));
@@ -192,7 +116,9 @@ app.post('/api/runs', (req, res) => {
   try {
     safeUrl(req.body.url);
     parseFigmaReference(req.body.figmaUrl);
-    const run = { id: crypto.randomUUID(), status: 'queued', url: req.body.url, figmaUrl: req.body.figmaUrl, includeHeaderFooter: req.body.includeHeaderFooter === true, findings: [], artifacts: [], createdAt: new Date().toISOString() };
+    const testType = parseTestType(req.body.testType);
+    if (req.body.includeHeaderFooter !== undefined && typeof req.body.includeHeaderFooter !== 'boolean') throw new Error('includeHeaderFooter must be true or false.');
+    const run = { id: crypto.randomUUID(), status: 'queued', url: req.body.url, figmaUrl: req.body.figmaUrl, testType, includeHeaderFooter: req.body.includeHeaderFooter !== false, findings: [], artifacts: [], createdAt: new Date().toISOString() };
     runs.set(run.id, run);
     res.status(202).json(run);
     void runSuite(run, req.body);
@@ -205,4 +131,4 @@ app.get('/api/runs/:id', (req, res) => {
 });
 app.get('/api/health', (_req, res) => res.json({ ok: true, browserInstalled: existsSync(path.join(root, 'node_modules')) }));
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Wording Inspector running on http://localhost:${port}`));
+app.listen(port, () => console.log(`Web Quality Inspector running on http://localhost:${port}`));

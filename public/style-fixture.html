@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Style Fixture</title>
+  <style>
+    body { margin: 0; font: 400 16px/20px Arial, sans-serif; color: rgb(0, 0, 0); }
+    header { position: absolute; top: 0; width: 100%; height: 60px; }
+    main { position: absolute; top: 60px; width: 100%; }
+    footer { position: absolute; top: 600px; width: 100%; height: 80px; }
+    span { position: absolute; left: 20px; display: block; }
+    #brand { top: 20px; } #alpha { top: 40px; } #beta { top: 80px; } #legal { top: 20px; }
+  </style>
+</head>
+<body>
+  <header><span id="brand">Brand</span></header>
+  <main><span id="alpha">Alpha</span><span id="beta">Beta</span></main>
+  <footer><span id="legal">Legal</span></footer>
+  <script>
+    const params = new URLSearchParams(location.search);
+    if (params.has('spacingMismatch')) document.querySelector('#beta').style.top = '106px';
+    if (params.has('headerFooterMismatch')) {
+      document.querySelector('#brand').style.left = '40px';
+      document.querySelector('#legal').style.left = '40px';
+    }
+  </script>
+</body>
+</html>

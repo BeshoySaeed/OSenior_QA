@@ -1,17 +1,18 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wording Inspector</title><link rel="stylesheet" href="/style.css"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Web Quality Inspector</title><link rel="stylesheet" href="/style.css"></head>
 <body>
   <main class="shell">
-    <header><p class="eyebrow">WORDING WORKSPACE</p><h1>Compare page wording with Figma.</h1><p class="lede">Capture the current page, compare visible words with a Figma frame, and review the marked differences.</p></header>
+    <header><p class="eyebrow">QUALITY WORKSPACE</p><h1>Compare a page with Figma.</h1><p class="lede">Choose a wording or style/spacing test, then review the marked differences.</p></header>
     <section class="grid">
-      <form id="run-form" class="card" aria-labelledby="new-run"><h2 id="new-run">New wording test</h2>
+      <form id="run-form" class="card" aria-labelledby="new-run"><h2 id="new-run">New test</h2>
+        <label>Test type<select name="testType" required><option value="wording">Wording</option><option value="style-spacing">Style/Spacing</option></select></label>
         <label>Page or component URL<input required name="url" type="url" placeholder="http://localhost:5173" value="https://example.com"></label>
         <label>Dismiss notification selector (optional)<input name="dismissSelector" placeholder="[aria-label='Close notification']"><small>Clicked once before capture if the notification appears.</small></label>
         <label>Figma frame URL<input required name="figmaUrl" type="url" placeholder="https://www.figma.com/design/…?node-id=1-2"><small>The URL must point to a frame and include <code>node-id</code>. The page is captured at the frame's width and height.</small></label>
         <label>Figma token for this run<input name="figmaToken" type="password" autocomplete="off" placeholder="Stored only in server memory during this run"><small>Optional if the server was started with <code>FIGMA_TOKEN</code>. Never included in reports or artifacts.</small></label>
-        <label class="check"><input name="includeHeaderFooter" type="checkbox">Test header and footer wording</label>
-        <button>Run wording test <span aria-hidden="true">→</span></button><p id="form-error" role="alert"></p>
+        <label class="check"><input name="includeHeaderFooter" type="checkbox" checked>Include header and footer</label>
+        <button>Run test <span aria-hidden="true">→</span></button><p id="form-error" role="alert"></p>
       </form>
       <section class="card report" aria-live="polite"><div class="report-title"><div><p class="eyebrow">LIVE REPORT</p><h2 id="run-title">Ready to compare</h2></div><span id="status" class="badge">Idle</span></div><p id="summary">Start a test to collect browser evidence.</p><div id="findings" class="findings"></div><div id="comparisons"></div><div id="artifacts"><div class="artifact-actions"><span id="current-render-link" class="artifact unavailable" aria-disabled="true">View current render</span><span id="figma-reference-link" class="artifact unavailable" aria-disabled="true">View Figma references</span></div><div id="wording-overlay"></div></div></section>
     </section>
