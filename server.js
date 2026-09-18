@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { PNG } from 'pngjs';
 import sharp from 'sharp';
+import { compareWordingSections } from './wording.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const artifactRoot = path.join(root, 'artifacts');
@@ -41,11 +42,14 @@ function drawBorder(image, region) {
     for (let y = region.y; y < region.y + region.height; y += 1) { set(region.x + offset, y); set(region.x + region.width - 1 - offset, y); }
   }
 }
-function figmaTextNodes(node, words = []) {
-  if (!node || typeof node !== 'object') return words;
-  if (node.type === 'TEXT' && node.characters) words.push(...node.characters.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []);
-  for (const child of node.children || []) figmaTextNodes(child, words);
-  return words;
+function figmaTextPhrases(node, phrases = []) {
+  if (!node || typeof node !== 'object' || node.visible === false) return phrases;
+  const box = node.absoluteBoundingBox;
+  if (node.type === 'TEXT' && node.characters?.trim() && box) {
+    phrases.push({ text: node.characters.trim(), x: box.x, y: box.y });
+  }
+  for (const child of node.children || []) figmaTextPhrases(child, phrases);
+  return phrases;
 }
 async function getFigmaNode(figmaUrl, figmaToken) {
   const token = figmaToken || process.env.FIGMA_TOKEN;
@@ -81,34 +85,46 @@ async function saveFigmaReference(figmaUrl, figmaToken, run, runDir) {
   await writeFile(path.join(runDir, 'figma-reference.png'), Buffer.from(await image.arrayBuffer()));
   run.artifacts.push({ type: 'figma-reference', label: 'Figma references', url: `/artifacts/${run.id}/figma-reference.png` });
 }
-async function getPageWords(page) {
+async function getPagePhrases(page) {
   return page.evaluate(() => {
-    const words = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const phrases = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const seenHeadings = new Set();
     let node;
     while ((node = walker.nextNode())) {
-      if (!node.parentElement || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(node.parentElement.tagName)) continue;
-      const text = node.textContent || '', matcher = /[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu;
-      let match;
-      while ((match = matcher.exec(text))) {
-        const range = document.createRange(); range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
-        const rect = range.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight) words.push({ word: match[0].toLocaleLowerCase(), x: Math.round(rect.x), y: Math.round(rect.y), width: Math.ceil(rect.width), height: Math.ceil(rect.height) });
-      }
+      const parent = node.parentElement;
+      if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName) || parent.closest('[aria-hidden="true"]')) continue;
+      const heading = parent.closest('h1,h2,h3');
+      if (heading && seenHeadings.has(heading)) continue;
+      const text = (heading ? heading.textContent : node.textContent)?.replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const range = document.createRange();
+      if (heading) { range.selectNodeContents(heading); seenHeadings.add(heading); }
+      else range.selectNodeContents(node);
+      const rect = range.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+      phrases.push({ text, heading: Boolean(heading), region: { x: Math.max(0, Math.round(rect.x)), y: Math.max(0, Math.round(rect.y)), width: Math.ceil(rect.width), height: Math.ceil(rect.height) } });
     }
-    return words;
+    return phrases;
   });
 }
 async function runWordingCheck(page, figmaNode, run, runDir, currentPath) {
-  const [figmaWords, pageWords] = await Promise.all([Promise.resolve(figmaTextNodes(figmaNode).map(word => word.toLocaleLowerCase())), getPageWords(page)]);
-  const expected = new Map(); for (const word of figmaWords) expected.set(word, (expected.get(word) || 0) + 1);
-  const seen = new Map(), differing = [];
-  for (const word of pageWords) { const count = (seen.get(word.word) || 0) + 1; seen.set(word.word, count); if (count > (expected.get(word.word) || 0)) differing.push(word); }
-  const missing = [...expected].filter(([word, count]) => (seen.get(word) || 0) < count).map(([word]) => word).slice(0, 20);
+  const [figmaPhrases, pagePhrases] = await Promise.all([Promise.resolve(figmaTextPhrases(figmaNode)), getPagePhrases(page)]);
+  if (!figmaPhrases.length) throw new Error('No text was found in the selected Figma frame.');
+  const sections = compareWordingSections(figmaPhrases, pagePhrases);
+  run.comparisons = sections.filter(section => section.rows.length).map(section => ({
+    label: section.label,
+    rows: section.rows.map(({ kind, figma, website }) => ({ kind, figma, website }))
+  }));
+  const counts = { changed: 0, added: 0, missing: 0 };
+  const differing = sections.flatMap(section => section.rows).filter(row => {
+    counts[row.kind] += 1;
+    return row.region && row.kind === 'changed';
+  });
   const overlay = PNG.sync.read(await sharp(currentPath).png().toBuffer());
-  differing.forEach(region => drawBorder(overlay, region));
+  differing.forEach(row => drawBorder(overlay, row.region));
   await writeFile(path.join(runDir, 'wording-overlay.png'), PNG.sync.write(overlay));
-  run.artifacts.push({ type: 'wording-overlay', label: 'Page with wording differences marked', url: `/artifacts/${run.id}/wording-overlay.png` });
-  if (differing.length || missing.length) run.findings.push(toFinding('high', 'Wording differs from Figma', `${differing.length} page word${differing.length === 1 ? '' : 's'} highlighted. ${missing.length ? `Words in Figma not found on page: ${missing.join(', ')}.` : ''}`));
+  run.artifacts.push({ type: 'wording-overlay', label: 'Page with changed phrases marked', url: `/artifacts/${run.id}/wording-overlay.png` });
+  if (counts.changed || counts.added || counts.missing) run.findings.push(toFinding('high', 'Wording differs from Figma', `${counts.changed} changed, ${counts.added} added on the website, ${counts.missing} missing from the website. Review the phrases by section below.`));
 }
 async function runSuite(run, request) {
   const { url, figmaUrl, figmaToken, dismissSelector } = request;

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/wording.test.js test/integration.test.js"
   },
   "dependencies": {
     "express": "^5.1.0",

@@ -14,4 +14,6 @@ Open `http://localhost:3000`. Enter a page URL, a Figma frame URL containing `no
 
 If a notification covers the page, enter its close-button CSS selector. The runner attempts to click it before capturing the current render.
 
-The wording test compares word counts from Figma text nodes with visible page words. It marks extra page words on the screenshot and lists words from Figma that are absent from the page. The Figma reference button opens the exported frame when available, or the original Figma URL if export fails. The current render button is available once the page screenshot is captured.
+The wording test compares text phrases within page sections. Shared headings divide the page into sections; identical phrases are matched even if their order changes, and similar remaining phrases are paired as edits. The report shows Figma and website phrases side by side, including website-only and Figma-only text. Red borders mark only paired phrases identified as changed. Added and missing phrases appear in the table without red marks on the screenshot. The Figma reference button opens the exported frame when available, or the original Figma URL if export fails. The current render button is available once the page screenshot is captured.
+
+Run the focused comparison and browser checks with `npm test`.
