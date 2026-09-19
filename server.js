@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { runWordingCheck } from './wording-runner.js';
 import { runStyleSpacingCheck } from './style-spacing-runner.js';
+import { runDesignQA } from './design-qa/runner.js';
 import { toFinding } from './run-shared.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -33,9 +34,9 @@ function parseFigmaReference(value) {
   return { fileKey, nodeId };
 }
 function parseTestType(value) {
-  if (value === undefined) return 'wording'; // Existing API callers remain wording runs.
-  if (value === 'wording' || value === 'style-spacing') return value;
-  throw new Error('Select exactly one test type: wording or style-spacing.');
+  if (value === undefined) return 'design-qa';
+  if (['design-qa', 'wording', 'style-spacing'].includes(value)) return value;
+  throw new Error('Select exactly one test type: design-qa, wording, or style-spacing.');
 }
 async function getFigmaNode(figmaUrl, figmaToken) {
   const token = figmaToken || process.env.FIGMA_TOKEN;
@@ -48,12 +49,28 @@ async function getFigmaNode(figmaUrl, figmaToken) {
   if (!node) throw new Error('Figma did not return the selected frame.');
   return node;
 }
+async function getFigmaVariables(figmaUrl, figmaToken) {
+  const token = figmaToken || process.env.FIGMA_TOKEN;
+  const { fileKey } = parseFigmaReference(figmaUrl);
+  const response = await fetch(`https://api.figma.com/v1/files/${fileKey}/variables/local`, { headers: { 'X-Figma-Token': token } });
+  if (!response.ok) return {};
+  const payload = await response.json();
+  return payload.meta?.variables || {};
+}
 function viewportFromFigmaNode(node) {
   const box = node.absoluteBoundingBox;
   const width = Math.round(box?.width);
   const height = Math.round(box?.height);
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1) {
     throw new Error('The selected Figma frame has no usable width and height. Select a frame node.');
+  }
+  return { width, height };
+}
+function viewportForRun(node, requested) {
+  if (requested === undefined) return viewportFromFigmaNode(node);
+  const width = Number(requested?.width), height = Number(requested?.height);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 240 || height < 240 || width > 4000 || height > 4000) {
+    throw new Error('Viewport width and height must be whole numbers between 240 and 4000.');
   }
   return { width, height };
 }
@@ -81,7 +98,7 @@ async function runSuite(run, request) {
     run.startedAt = new Date().toISOString();
     const target = safeUrl(url);
     const figmaNode = await getFigmaNode(figmaUrl, figmaToken);
-    const viewport = viewportFromFigmaNode(figmaNode);
+    const viewport = viewportForRun(figmaNode, request.viewport);
     run.viewport = viewport;
     try { await saveFigmaReference(figmaUrl, figmaToken, run, runDir); }
     catch (error) { run.referenceError = error.message; }
@@ -96,16 +113,21 @@ async function runSuite(run, request) {
     run.artifacts.push({ type: 'screenshot', label: 'Current render', url: `/artifacts/${run.id}/current.png` });
     try {
       if (run.testType === 'wording') await runWordingCheck(page, figmaNode, run, runDir, currentPath);
-      else await runStyleSpacingCheck(page, figmaNode, run, runDir, currentPath);
+      else {
+        const figmaVariables = await getFigmaVariables(figmaUrl, figmaToken);
+        if (run.testType === 'style-spacing') await runStyleSpacingCheck(page, figmaNode, figmaVariables, run, runDir, currentPath);
+        else await runDesignQA(page, figmaNode, figmaVariables, run, runDir, currentPath);
+      }
     } catch (error) {
-      const title = run.testType === 'wording' ? 'Wording comparison unavailable' : 'Style/spacing comparison unavailable';
+      const title = run.testType === 'wording' ? 'Wording comparison unavailable' : run.testType === 'style-spacing' ? 'Style/spacing comparison unavailable' : 'Design QA comparison unavailable';
       run.findings.push(toFinding(run.testType, 'high', title, error.message));
     }
     run.status = run.findings.some(f => f.severity === 'high') ? 'failed' : 'passed';
   } catch (error) {
     run.status = 'error';
     run.error = error.message;
-    run.findings.push(toFinding(run.testType, 'high', `${run.testType === 'wording' ? 'Wording' : 'Style/spacing'} test could not complete`, error.message));
+    const label = run.testType === 'wording' ? 'Wording' : run.testType === 'style-spacing' ? 'Style/spacing' : 'Design QA';
+    run.findings.push(toFinding(run.testType, 'high', `${label} test could not complete`, error.message));
   } finally {
     run.finishedAt = new Date().toISOString();
     await writeFile(path.join(runDir, 'report.json'), JSON.stringify(run, null, 2));
@@ -118,7 +140,9 @@ app.post('/api/runs', (req, res) => {
     parseFigmaReference(req.body.figmaUrl);
     const testType = parseTestType(req.body.testType);
     if (req.body.includeHeaderFooter !== undefined && typeof req.body.includeHeaderFooter !== 'boolean') throw new Error('includeHeaderFooter must be true or false.');
-    const run = { id: crypto.randomUUID(), status: 'queued', url: req.body.url, figmaUrl: req.body.figmaUrl, testType, includeHeaderFooter: req.body.includeHeaderFooter !== false, findings: [], artifacts: [], createdAt: new Date().toISOString() };
+    const allowedThresholds = ['positionPx', 'sizePx', 'sizePercent', 'spacingPx', 'fontSizePx', 'lineHeightPx', 'letterSpacingPx', 'fontWeight', 'borderWidthPx', 'radiusPx', 'colorDistance', 'opacity', 'matchMinimum', 'confidentMatch', 'pixelDifference'];
+    const thresholds = req.body.thresholds === undefined ? undefined : Object.fromEntries(Object.entries(req.body.thresholds).filter(([key, value]) => allowedThresholds.includes(key) && Number.isFinite(value)));
+    const run = { id: crypto.randomUUID(), status: 'queued', url: req.body.url, figmaUrl: req.body.figmaUrl, testType, includeHeaderFooter: req.body.includeHeaderFooter !== false, thresholds, findings: [], artifacts: [], createdAt: new Date().toISOString() };
     runs.set(run.id, run);
     res.status(202).json(run);
     void runSuite(run, req.body);

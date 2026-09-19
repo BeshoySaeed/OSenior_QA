@@ -65,19 +65,22 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     await fixturePage.close();
     const page = await browser.newPage();
     await page.goto(base);
-    assert.equal(await page.locator('select[name=testType]').inputValue(), 'wording');
+    assert.equal(await page.locator('.viewport-fields').isVisible(), false);
+    assert.equal(await page.locator('#score-panel').isVisible(), false);
+    assert.equal(await page.locator('select[name=testType]').inputValue(), 'design-qa');
+    await page.locator('select[name=testType]').selectOption('wording');
     assert.equal(await page.locator('input[name=includeHeaderFooter]').isChecked(), true);
     await page.locator('input[name=includeHeaderFooter]').uncheck();
     await page.locator('input[name=url]').fill(`${base}/fixture.html`);
     await page.locator('input[name=figmaUrl]').fill('https://www.figma.com/design/test?node-id=1-2');
-    await page.locator('button').click();
+    await page.locator('button.primary-action').click();
     await page.waitForFunction(() => ['failed', 'passed', 'error'].includes(document.querySelector('#status').textContent));
     assert.equal(await page.locator('.comparison-section tbody tr').count(), 3);
     assert.equal(await page.locator('#wording-overlay figure').count(), 2);
     assert.match(await page.locator('#current-render-link').getAttribute('href'), /current\.png$/);
     assert.match(await page.locator('#figma-reference-link').getAttribute('href'), /figma-reference\.png$/);
     await page.locator('input[name=includeHeaderFooter]').check();
-    await page.locator('button').click();
+    await page.locator('button.primary-action').click();
     await page.waitForFunction(() => ['failed', 'passed', 'error'].includes(document.querySelector('#status').textContent));
     await page.waitForFunction(() => document.querySelector('#comparisons').textContent.includes('header text'));
     assert.match(await page.locator('#comparisons').textContent(), /header text/i);
@@ -126,7 +129,10 @@ test('style/spacing mode passes, fails, respects header/footer, and rejects mult
 
     const fail = await runRequest(payload('?spacingMismatch=1'));
     assert.equal(fail.status, 'failed');
-    assert.ok(fail.comparisons.some(section => section.label === 'Spacing'));
+    assert.ok(fail.comparisons.some(section => section.label === 'Spacing tokens'));
+    assert.match(JSON.stringify(fail.comparisons), /spacing\/lg/);
+    assert.match(JSON.stringify(fail.comparisons), /--spacing-xl/);
+    assert.doesNotMatch(JSON.stringify(fail.comparisons), /vertical position|horizontal position/);
     assert.ok(fail.findings.some(finding => finding.category === 'style-spacing'));
     assert.ok(fail.artifacts.some(artifact => artifact.type === 'style-spacing-overlay'));
     assert.ok(!fail.artifacts.some(artifact => artifact.type === 'wording-overlay'));
@@ -135,7 +141,16 @@ test('style/spacing mode passes, fails, respects header/footer, and rejects mult
     assert.equal(excluded.status, 'passed', JSON.stringify(excluded.findings));
     const included = await runRequest(payload('?headerFooterMismatch=1', true));
     assert.equal(included.status, 'failed');
-    assert.match(JSON.stringify(included.comparisons), /Brand|Legal/);
+    assert.match(JSON.stringify(included.comparisons), /header/);
+    assert.match(JSON.stringify(included.comparisons), /footer/);
+
+    const designQA = await runRequest({ ...payload('?spacingMismatch=1'), testType: 'design-qa' });
+    assert.equal(designQA.status, 'failed');
+    assert.ok(designQA.scores.overall < 100);
+    assert.ok(designQA.issues.some(issue => issue.category === 'spacing'));
+    assert.ok(designQA.matches.every(match => Number.isFinite(match.confidence)));
+    assert.ok(designQA.artifacts.some(artifact => artifact.type === 'comparison-overlay'));
+    assert.ok(designQA.artifacts.some(artifact => artifact.type === 'difference-map'));
 
     const both = await fetch(`${base}/api/runs`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -150,9 +165,26 @@ test('style/spacing mode passes, fails, respects header/footer, and rejects mult
     await page.locator('select[name=testType]').selectOption('style-spacing');
     await page.locator('input[name=url]').fill(`${base}/style-fixture.html`);
     await page.locator('input[name=figmaUrl]').fill('https://www.figma.com/design/test?node-id=2-3');
-    await page.locator('button').click();
+    await page.locator('button.primary-action').click();
     await page.waitForFunction(() => ['failed', 'passed', 'error'].includes(document.querySelector('#status').textContent));
     assert.equal(await page.locator('#status').textContent(), 'passed');
+
+    await page.locator('select[name=testType]').selectOption('design-qa');
+    await page.locator('input[name=url]').fill(`${base}/style-fixture.html?spacingMismatch=1`);
+    const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/runs') && response.request().method() === 'POST');
+    await page.locator('button.primary-action').click();
+    await responsePromise;
+    await page.waitForFunction(() => document.querySelector('#status').textContent === 'failed');
+    assert.equal(await page.locator('#score-panel').isVisible(), true);
+    assert.match(await page.locator('#overall-score').textContent(), /%/);
+    assert.ok(await page.locator('.issue-card').count() >= 1);
+    assert.match(await page.locator('#issue-list').textContent(), /gap: \+20px/);
+    assert.equal(await page.locator('.spacing-guide').count(), 1);
+    assert.match(await page.locator('.measure-table').textContent(), /Figma.*Website.*Delta/s);
+    await page.locator('[data-view=overlay]').click();
+    assert.equal(await page.locator('#website-overlay-image').count(), 1);
+    await page.locator('[data-view=diff]').click();
+    assert.equal(await page.locator('.diff-view img').count(), 1);
   } finally {
     if (browser) await browser.close();
     server.kill();

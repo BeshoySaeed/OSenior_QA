@@ -1,20 +1,57 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Web Quality Inspector</title><link rel="stylesheet" href="/style.css"></head>
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Design QA Inspector</title><link rel="stylesheet" href="/style.css">
+</head>
 <body>
-  <main class="shell">
-    <header><p class="eyebrow">QUALITY WORKSPACE</p><h1>Compare a page with Figma.</h1><p class="lede">Choose a wording or style/spacing test, then review the marked differences.</p></header>
-    <section class="grid">
-      <form id="run-form" class="card" aria-labelledby="new-run"><h2 id="new-run">New test</h2>
-        <label>Test type<select name="testType" required><option value="wording">Wording</option><option value="style-spacing">Style/Spacing</option></select></label>
-        <label>Page or component URL<input required name="url" type="url" placeholder="http://localhost:5173" value="https://example.com"></label>
-        <label>Dismiss notification selector (optional)<input name="dismissSelector" placeholder="[aria-label='Close notification']"><small>Clicked once before capture if the notification appears.</small></label>
-        <label>Figma frame URL<input required name="figmaUrl" type="url" placeholder="https://www.figma.com/design/…?node-id=1-2"><small>The URL must point to a frame and include <code>node-id</code>. The page is captured at the frame's width and height.</small></label>
-        <label>Figma token for this run<input name="figmaToken" type="password" autocomplete="off" placeholder="Stored only in server memory during this run"><small>Optional if the server was started with <code>FIGMA_TOKEN</code>. Never included in reports or artifacts.</small></label>
-        <label class="check"><input name="includeHeaderFooter" type="checkbox" checked>Include header and footer</label>
-        <button>Run test <span aria-hidden="true">→</span></button><p id="form-error" role="alert"></p>
-      </form>
-      <section class="card report" aria-live="polite"><div class="report-title"><div><p class="eyebrow">LIVE REPORT</p><h2 id="run-title">Ready to compare</h2></div><span id="status" class="badge">Idle</span></div><p id="summary">Start a test to collect browser evidence.</p><div id="findings" class="findings"></div><div id="comparisons"></div><div id="artifacts"><div class="artifact-actions"><span id="current-render-link" class="artifact unavailable" aria-disabled="true">View current render</span><span id="figma-reference-link" class="artifact unavailable" aria-disabled="true">View Figma references</span></div><div id="wording-overlay"></div></div></section>
+  <header class="product-header">
+    <div><span class="product-mark">DQ</span><div><strong>Design QA Inspector</strong><small>Figma → website validation</small></div></div>
+    <span class="engine-state">Deterministic analysis</span>
+  </header>
+  <main class="workspace">
+    <section class="intro"><p class="eyebrow">DESIGN IMPLEMENTATION REVIEW</p><h1>See what differs, why it differs, and what to inspect.</h1><p>Structured Figma data, browser DOM measurements, and visual evidence in one report.</p></section>
+    <form id="run-form" class="run-panel" aria-labelledby="new-run">
+      <div class="panel-heading"><div><p class="eyebrow">NEW COMPARISON</p><h2 id="new-run">Compare implementation</h2></div><span class="step-count">One run</span></div>
+      <div class="form-grid">
+        <label class="wide"><span>Website URL</span><input required name="url" type="url" placeholder="http://localhost:5173"></label>
+        <label class="wide"><span>Figma frame URL</span><input required name="figmaUrl" type="url" placeholder="https://www.figma.com/design/…?node-id=1-2"><small>Choose the frame for the viewport you want to test.</small></label>
+        <label><span>Viewport</span><select name="viewportPreset"><option value="figma">Use Figma frame</option><option value="desktop">Desktop · 1440 × 900</option><option value="tablet">Tablet · 768 × 1024</option><option value="mobile">Mobile · 390 × 844</option><option value="custom">Custom</option></select></label>
+        <div class="viewport-fields" hidden><label><span>Width</span><input name="viewportWidth" type="number" min="240" max="4000"></label><label><span>Height</span><input name="viewportHeight" type="number" min="240" max="4000"></label></div>
+        <label><span>Analysis</span><select name="testType"><option value="design-qa">Full Design QA</option><option value="wording">Wording only</option><option value="style-spacing">Style/spacing only</option></select></label>
+        <label><span>Tolerance</span><select name="tolerance"><option value="balanced">Balanced</option><option value="strict">Strict</option><option value="relaxed">Relaxed</option></select></label>
+        <label class="wide"><span>Figma token</span><input name="figmaToken" type="password" autocomplete="off" placeholder="Optional when FIGMA_TOKEN is set"></label>
+        <label class="wide"><span>Dismiss overlay selector <em>optional</em></span><input name="dismissSelector" placeholder="[aria-label='Close notification']"></label>
+      </div>
+      <label class="check"><input name="includeHeaderFooter" type="checkbox" checked><span>Include header and footer</span></label>
+      <button class="primary-action">Compare design and website <span aria-hidden="true">→</span></button>
+      <p id="form-error" role="alert"></p>
+    </form>
+
+    <section id="report" class="report" aria-live="polite">
+      <header class="report-header"><div><p class="eyebrow">DESIGN QA REPORT</p><h2 id="run-title">Ready to compare</h2><p id="summary">Enter a website and Figma frame to start.</p></div><span id="status" class="badge">Idle</span></header>
+      <section id="score-panel" class="score-panel" hidden>
+        <div class="overall-score"><strong id="overall-score">—</strong><span>Overall alignment</span><small id="score-confidence"></small></div>
+        <div id="category-scores" class="category-scores"></div>
+        <details class="score-method"><summary>How scoring works</summary><p id="score-method"></p></details>
+      </section>
+
+      <section id="visual-panel" class="visual-panel" hidden>
+        <header><div><h3>Visual comparison</h3><p>Use image evidence to verify the structured findings.</p></div><div class="view-tabs" role="tablist"><button type="button" data-view="side" class="active">Side by side</button><button type="button" data-view="overlay">Overlay</button><button type="button" data-view="diff">Difference map</button></div></header>
+        <div id="visual-canvas" class="visual-canvas"></div>
+        <label id="opacity-control" class="opacity-control" hidden>Website opacity <input id="overlay-opacity" type="range" min="0" max="100" value="50"><output>50%</output></label>
+      </section>
+
+      <section id="issues-panel" class="issues-panel" hidden>
+        <header><div><h3 id="issue-total">Issues</h3><p>Measured facts are separated from inferred causes and suggested investigation.</p></div><div class="issue-filters"><select id="severity-filter"><option value="all">All severities</option><option value="critical">Critical</option><option value="major">Major</option><option value="minor">Minor</option></select><select id="category-filter"><option value="all">All categories</option></select></div></header>
+        <div class="issue-workspace"><div id="issue-list" class="issue-list"></div><aside id="issue-inspector" class="issue-inspector"><p class="empty">Select an issue to inspect its measurements.</p></aside></div>
+      </section>
+
+      <div id="findings" class="legacy-findings"></div><div id="comparisons" hidden></div>
+      <div class="artifact-actions"><span id="current-render-link" class="artifact unavailable">Website capture</span><span id="figma-reference-link" class="artifact unavailable">Figma reference</span></div>
+      <div id="wording-overlay"></div>
     </section>
-  </main><script src="/app.js"></script>
-</body></html>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,8 +1,8 @@
-# Web Quality Inspector
+# Design QA Inspector
 
-Local tool for comparing page wording or style/spacing with a Figma frame. Each run executes exactly one test type and keeps links to the current render and Figma reference.
+A local Figma-to-website validation tool. It compares structured Figma data with the rendered DOM and computed CSS at the same viewport. Screenshot overlays and difference maps are supporting evidence; they do not create issues or determine severity.
 
-## Run locally
+## Start the tool
 
 ```powershell
 npm install
@@ -10,14 +10,65 @@ npx playwright install chromium
 npm run dev
 ```
 
-Open `http://localhost:3000`. Choose **Wording** or **Style/Spacing** from the single test-type select, then enter a page URL, a Figma frame URL containing `node-id`, and a Figma personal access token (or set `FIGMA_TOKEN` before starting the server). **Include header and footer** is checked by default for both modes; uncheck it to omit those regions from validation while keeping the page layout intact. The browser viewport automatically uses the selected Figma frame's width and height. The token stays in server memory and is not written to the report. Screenshots and the JSON report are saved under `artifacts/`.
+Open `http://localhost:3000` and provide:
 
-API callers can POST to `/api/runs` with one `testType` value (`"wording"` or `"style-spacing"`) and one boolean `includeHeaderFooter` value. An array or combined test type is rejected. Omitting `testType` keeps existing API callers on wording mode; omitting `includeHeaderFooter` includes those regions.
+- A website URL.
+- A Figma frame URL containing `node-id`.
+- A Figma personal access token, unless `FIGMA_TOKEN` is set on the server.
+- One analysis mode.
+- A viewport and tolerance profile.
 
-If a notification covers the page, enter its close-button CSS selector. The runner attempts to click it before capturing the current render.
+**Include header and footer** is enabled by default in every mode. Clear it to omit `header`, `footer`, `#mc-header`, `#mc-footer`, `.mc-header`, and `.mc-footer` from analysis without removing those elements from the rendered page.
 
-The wording test compares text phrases within page sections. Shared headings divide the page into sections; identical phrases are matched even if their order changes, and similar remaining phrases are paired as edits. The report shows Figma and website phrases side by side, including website-only and Figma-only text. Red borders on the website screenshot mark changed and website-only phrases. If a Figma export is available, a second annotated image marks Figma phrases missing from the website. Matching phrases are never marked. The Figma reference button opens the exported frame when available, or the original Figma URL if export fails. The current render button is available once the page screenshot is captured.
+## Analysis modes
 
-The style/spacing test uses the selected Figma frame as its baseline. It matches visible text anchors by exact wording, then compares their horizontal and vertical positions, vertical gaps between stacked anchors, font size, line height, font weight, and text color when Figma provides those values. Rendered positions and gaps reflect the effective margin/padding and alignment without requiring access to the site's CSS source. Tolerances are 4 px for position and gap, 1 px for font size, 2 px for line height, 50 for font weight, and 8 per color channel. Unmatched wording is outside this mode's scope. The report uses the same `comparisons`, `findings`, and screenshot-artifact structure as wording mode; only failing elements are outlined.
+Exactly one mode runs per request:
 
-Run the focused comparison and browser checks with `npm test`.
+- **Full Design QA** analyzes hierarchy, missing and extra elements, relative geometry, padding, gaps, alignment, typography, colors, borders, radii, opacity, shadow presence, content, and component coverage.
+- **Wording only** keeps the existing phrase and section comparison report. Only changed, missing, and extra wording is highlighted.
+- **Style/spacing only** keeps the focused semantic auto-layout and token report. It compares Figma padding, item spacing, alignment, typography, and text color with computed CSS.
+
+Submitting an array or combined test type returns `400` with `Select exactly one test type`.
+
+API example:
+
+```json
+{
+  "testType": "design-qa",
+  "url": "http://localhost:5173/checkout",
+  "figmaUrl": "https://www.figma.com/design/FILE/Name?node-id=1-2",
+  "includeHeaderFooter": true,
+  "viewport": { "width": 1440, "height": 900 },
+  "thresholds": { "spacingPx": 2, "colorDistance": 18 }
+}
+```
+
+## Report
+
+The Full Design QA report provides:
+
+- Overall and category scores with the scoring formula and weights.
+- Side-by-side, adjustable overlay, and filtered difference-map views.
+- Issue filters by category and severity.
+- Exact expected, actual, and delta values.
+- Match confidence and a `needs review` state below the confidence threshold.
+- Separate measured facts, likely causes, and suggested investigation steps.
+- Issue-only highlights on both the website capture and normalized Figma image.
+
+Artifacts and `report.json` are written under `artifacts/<run-id>/`. Figma tokens remain in server memory and are not written to the report.
+
+See [Design QA architecture](docs/design-qa-architecture.md) for the data model, matching algorithm, tolerances, severity rules, scoring, and known limitations.
+
+## Spacing tokens
+
+The focused Style/spacing mode discovers CSS custom properties such as `--spacing-lg`, `--space-xl`, and `--gap-2xl`. It uses Figma variable names when the Variables API is available and falls back to resolving Figma auto-layout values against the website token scale. Reports prefer token names with pixel evidence, for example `expected lg (20px; spacing/lg), actual xl (40px; --spacing-xl)`.
+
+Container matching uses text only as an anchor; wording differences are never reported in this mode. Geometry, layout direction, hierarchy depth, and content count disambiguate nested wrappers that contain the same text. Effective visual insets and child gaps suppress false issues when equivalent spacing is owned by different Figma and DOM wrapper layers. Alignment is reported only when free space exists for that alignment property to change the rendered result, and repeated component issues are grouped by occurrence count.
+
+## Verify changes
+
+```powershell
+npm test
+```
+
+The suite contains deterministic ground-truth checks plus browser integration tests for mode selection, header/footer behavior, issue highlighting, matching confidence, scoring, and all three visual views.
