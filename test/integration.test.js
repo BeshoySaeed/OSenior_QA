@@ -35,6 +35,11 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     assert.equal(run.includeHeaderFooter, false);
     assert.deepEqual(run.viewport, { width: 500, height: 700 });
     assert.deepEqual(run.comparisons.flatMap(section => section.rows.map(row => row.kind)).sort(), ['added', 'changed', 'missing']);
+    const wordingRows = run.comparisons.flatMap(section => section.rows);
+    assert.deepEqual(wordingRows.map(row => row.label), ['W1', 'W2', 'W3']);
+    const markedArtifact = type => run.artifacts.find(artifact => artifact.type === type);
+    assert.deepEqual(Object.keys(markedArtifact('wording-overlay').locations), wordingRows.filter(row => row.kind !== 'missing').map(row => row.label));
+    assert.deepEqual(Object.keys(markedArtifact('figma-wording-overlay').locations), wordingRows.filter(row => row.kind === 'missing').map(row => row.label));
     assert.doesNotMatch(JSON.stringify(run.comparisons), /header text|footer text/i);
     assert.ok(run.artifacts.some(artifact => artifact.type === 'screenshot'));
     assert.ok(run.artifacts.some(artifact => artifact.type === 'figma-reference'));
@@ -48,6 +53,15 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     const [current, websiteOverlay, figmaOverlay] = await Promise.all([
       artifactImage('screenshot'), artifactImage('wording-overlay'), artifactImage('figma-wording-overlay')
     ]);
+    for (const [type, image] of [['wording-overlay', websiteOverlay], ['figma-wording-overlay', figmaOverlay]]) {
+      for (const [label, location] of Object.entries(markedArtifact(type).locations)) {
+        const x = Math.floor(location.left * image.width / 100);
+        const y = Math.floor(location.top * image.height / 100);
+        const badgePixels = Array.from({ length: 20 }, (_, column) => pixel(image, x - 10 + column, y));
+        assert.ok(badgePixels.some(([r, g, b]) => r === 165 && g === 29 && b === 37), `${label} should have a red badge background`);
+        assert.ok(badgePixels.some(([r, g, b]) => r === 255 && g === 255 && b === 255), `${label} should have white lettering inside the badge`);
+      }
+    }
     assert.deepEqual(pixel(figmaOverlay, 20, 230), [239, 49, 49, 255], 'Figma-only text should be outlined on the reference');
     assert.deepEqual(websiteOverlay.data.subarray(0, 60 * websiteOverlay.width * 4), current.data.subarray(0, 60 * current.width * 4), 'header should remain unmarked');
     assert.deepEqual(websiteOverlay.data.subarray(600 * websiteOverlay.width * 4), current.data.subarray(600 * current.width * 4), 'footer should remain unmarked');
@@ -77,6 +91,17 @@ test('run uses Figma dimensions and reports phrases by section', async () => {
     await page.waitForFunction(() => ['failed', 'passed', 'error'].includes(document.querySelector('#status').textContent));
     assert.equal(await page.locator('.comparison-section tbody tr').count(), 3);
     assert.equal(await page.locator('#wording-overlay figure').count(), 2);
+    for (const row of wordingRows) {
+      const source = row.kind === 'missing' ? 'Figma' : 'website';
+      const jump = page.getByRole('link', { name: `Show ${row.label} on the ${source} screenshot` });
+      assert.equal(await jump.textContent(), row.label);
+      await jump.press('Enter');
+      assert.equal(await page.locator(':focus').getAttribute('id'), `wording-location-${row.label}`);
+      assert.equal(await page.locator(':focus').evaluate(element => {
+        const { top, bottom } = element.getBoundingClientRect();
+        return top >= 0 && bottom <= window.innerHeight;
+      }), true);
+    }
     assert.match(await page.locator('#current-render-link').getAttribute('href'), /current\.png$/);
     assert.match(await page.locator('#figma-reference-link').getAttribute('href'), /figma-reference\.png$/);
     await page.locator('input[name=includeHeaderFooter]').check();

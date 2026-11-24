@@ -107,14 +107,47 @@ function renderIssues(run) {
   renderInspector(issues.find(issue => issue.id === selectedIssueId) || filtered[0], run);
 }
 
+function wordingLocationId(label) {
+  return `wording-location-${label}`;
+}
+
+function wordingReference(row, marked) {
+  if (!/^W[1-9]\d*$/.test(row.label)) return '—';
+  const image = marked.find(item => item.locations?.[row.label]);
+  const source = image?.type === 'figma-wording-overlay' ? 'Figma' : 'website';
+  const badge = `<span class="wording-label">${row.label}</span>`;
+  return image
+    ? `<a class="wording-jump" href="#${wordingLocationId(row.label)}" aria-label="Show ${row.label} on the ${source} screenshot">${badge}</a>`
+    : `${badge}<span class="wording-location-unavailable">Location unavailable</span>`;
+}
+
+function comparisonOverlay(item) {
+  const locations = Object.entries(item.locations || {}).map(([label, { left, top }]) =>
+    `<span id="${wordingLocationId(label)}" class="wording-location" tabindex="-1" role="img" aria-label="Wording finding ${label}" style="left:${left}%;top:${top}%"></span>`
+  ).join('');
+  const dimensions = locations ? ` width="${item.width}" height="${item.height}"` : '';
+  return `<figure class="overlay"><div class="wording-image"><img src="${item.url}" alt="${escapeHtml(item.label)}"${dimensions}>${locations}</div><figcaption>${escapeHtml(item.label)}</figcaption></figure>`;
+}
+
 function renderLegacy(run) {
   const designQA = run.testType === 'design-qa';
+  const wording = run.testType === 'wording';
+  const marked = run.artifacts.filter(item => ['wording-overlay', 'figma-wording-overlay', 'style-spacing-overlay'].includes(item.type));
   findings.innerHTML = designQA ? '' : run.findings.map(finding => `<article class="finding ${finding.severity}"><div><h3>${escapeHtml(finding.title)}</h3><span class="severity">${escapeHtml(finding.severity)}</span></div><p>${escapeHtml(finding.description || '')}</p></article>`).join('');
   comparisons.hidden = designQA;
-  comparisons.innerHTML = designQA ? '' : (run.comparisons || []).map(section => `<details class="comparison-section" open><summary>${escapeHtml(section.label)} · ${section.rows.length}</summary><table><thead><tr><th>Type</th><th>Figma</th><th>Website</th></tr></thead><tbody>${section.rows.map(row => `<tr><td>${escapeHtml(row.issue || row.kind)}</td><td>${escapeHtml(row.figma)}</td><td>${escapeHtml(row.website)}</td></tr>`).join('')}</tbody></table></details>`).join('');
-  const marked = run.artifacts.filter(item => ['wording-overlay', 'figma-wording-overlay', 'style-spacing-overlay'].includes(item.type));
-  overlays.innerHTML = designQA ? '' : marked.map(item => `<figure class="overlay"><img src="${item.url}" alt="${escapeHtml(item.label)}"><figcaption>${escapeHtml(item.label)}</figcaption></figure>`).join('');
+  comparisons.innerHTML = designQA ? '' : (run.comparisons || []).map(section => `<details class="comparison-section" open><summary>${escapeHtml(section.label)} · ${section.rows.length}</summary><table><thead><tr>${wording ? '<th scope="col">Screenshot</th>' : ''}<th scope="col">Type</th><th scope="col">Figma</th><th scope="col">Website</th></tr></thead><tbody>${section.rows.map(row => `<tr>${wording ? `<td>${wordingReference(row, marked)}</td>` : ''}<td>${escapeHtml(row.issue || row.kind)}</td><td>${escapeHtml(row.figma)}</td><td>${escapeHtml(row.website)}</td></tr>`).join('')}</tbody></table></details>`).join('');
+  overlays.innerHTML = designQA ? '' : marked.map(comparisonOverlay).join('');
 }
+
+comparisons.addEventListener('click', event => {
+  const link = event.target.closest('.wording-jump');
+  if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  const location = document.getElementById(link.hash.slice(1));
+  if (!location) return;
+  event.preventDefault();
+  location.focus({ preventScroll: true });
+  location.scrollIntoView({ block: 'center' });
+});
 
 function render(run) {
   currentRun = run;
